@@ -1,0 +1,119 @@
+PinComm
+=======
+
+
+Requirements
+------------
+
+32- or 64-bit x86 Linux
+Python 2.4
+Pin 2.8 [ http://www.pintool.org/downloads.html ]
+
+
+Compilation
+-----------
+
++ make sure you have Python 2.6 installed, including the development (python-dev or python-devel) package
++ compile the "binstore" Python module:
+  $ make -C binstore
++ test if the binstore module compiled correctly and can be loaded:
+  $ python -c 'import binstore'
+
++ get a copy of Pin at http://www.pintool.org/downloads.html and extract it
++ update Makefile so that PIN_KIT points to the location where you extracted Pin
+
++ compile PinComm
+  $ make
+
+
+Profiling
+---------
+
+PinComm is implemented in two phases. One is a C++ program using Pin, which runs the benchmark and writes all memory accesses in a binary format to a trace file. The second phase is a Python script that reads the trace file and performs analysis.
+
+Step one: run the benchmark with PinComm:
+$ <path-to-pin>/pin -t <path-to-pincomm>/obj-ia32/pincomm.so <pincomm-options> -- <benchmark> <benchmark-arguments>
+
+e.g.:
+$ ~/pin-2.8/pin -t ~/pincomm/obj-ia32/pincomm.so -o output.pcs -- ls -l
+
+PinComm options:
+-o <filename>         output filename (default: pincommtrace.pcs)
+-minlen <ninstr>      combine small functions/regions until they are at least <ninstr> instructions long, default: 0)
+-regiontime <ninstr>  split regions into chunks of <ninstr> instructions (replaces MAGICly marked regions, default: no)
+-magic                use Simics Magic instruction to start/stop measurement (default: whole program)
+-zone <zone-number>   only measure zone <zone-number> (default: whole program)
+-memgran <bytes>      memory granularity (default: 64 bytes)
+
+Normally, all (32-bit) multi-threaded, dynamically linked applications should be supported. Note though that PinComm has a large memory overhead, so you cannot run with very large input sizes unless you have a machine with a *lot* of memory.
+
+
+Processing
+----------
+
+Once you have a trace file, it can be processed using the pinprocess.py script. Its output will be a CSV-style file that lists all code region pairs and the communication between them. Code regions can be:
+- dynamic function calls (each time a function 'foo' is called, it's a new region)
+- static functions (all invocations of function 'foo' are considered the same region)
+- static functions per thread (all invocations *by a single thread* are considered the same region)
+- regions as marked in the code with special instructions (see Marking section)
+- a complete thread
+- a time slice of a single thread (each slice of <ninstr> instructions will become a new thread)
+
+Running the processing script:
+$ <path-to-pincomm>/pinprocess.py <options>
+Make sure that Python can find the binstore module, either by cd-ing into <path-to-pincomm> first, or by adding <path-to-pincomm>/binstore to the PYTHONPATH environment variable
+
+Full list of options to pinprocess.py:
+-i --input    input filename, default is pincommtrace.pcs
+-o --output   output filename, default is stdout
+--minlen      minimum length of functions (#instructions) for functions not to be collapsed into their parent
+--objects     enable counting communication per object (malloc range)
+--insidelibs  provide view inside library functions, default = collapse each library call and its children into a single node
+--ignorelibs  pattern to ignore as library function
+--groupby     group functions by: tf (thread, (dynamic) function) [default],
+                                  ts (thread, static function),
+                                  s  (static function),
+                                  tr (thread, region),
+                                  r  (region),
+                                  t  (thread)
+                                  tt:icount  (thread+time, icount = icount (total over all threads) to group time by)
+--regionmerge python expression forming a mapping function from regionid `r' to a region identifier, making it possible to merge regions
+--mallocmerge same as --regionmerge, but applied on merged regions and only for malloc() counts
+
+
+Marking code regions
+--------------------
+
+By default, PinComm can extract function names from any compiled application and use them as regions. You can also insert markers into the application source code to manually define regions. This is done by a set of macros defined in pinmagic.h.
+
+PIN_REGION(rid)      defines the start of a region with id <rid>. To measure communication
+                     between these regions, start pinprocess.py with --groupby=r or --groupby=tr
+
+PIN_ZONE_ENTER(zid)  
+PIN_ZONE_EXIT(rid)   Start and stop a zone. The -zone=<zid> option to PinComm (first phase)
+                     can be used to only measure while in a zone.
+
+For instance, in the WSS application, each frame is a zone while the grayboxes (Decode, Prepare etc.) are regions. This way, running phase one with -zone=3 and phase two with --groupby=r allows one to see the communication between the graybox entities for frame #3.
+
+
+Citing
+------
+
+When publishing work that uses PinComm, please cite the following reference:
+
+Heirman, W.; Stroobandt, D.; Miniskar, N.R.; Wuyts, R.; Catthoor, F. PinComm: Characterizing Intra-Application Communication for the Many-Core Era. Proceedings of the 16th International Conference on Parallel and Distributed Systems (ICPADS). 2010. pp. 500-507
+
+@INPROCEEDINGS{heirman2010pcicftmea,
+  author = {Wim Heirman and Dirk Stroobandt and Narasinga Rao Miniskar and Roel
+	Wuyts and Francky Catthoor},
+  title = {{PinComm}: characterizing intra-application communication for the
+	many-core era},
+  booktitle = {Proceedings of the 16th IEEE International conference on Parallel
+	and Distributed Systems (ICPADS)},
+  year = {2010},
+  pages = {500-507},
+  address = {Shanghai, China},
+  month = dec,
+  doi = {10.1109/ICPADS.2010.56},
+  keywords = {Profiling, dynamic dataflow graph, communication, network-on-chip}
+}
