@@ -44,6 +44,8 @@ PinComm options:
 -magic                use Simics Magic instruction to start/stop measurement (default: whole program)
 -zone <zone-number>   only measure zone <zone-number> (default: whole program)
 -memgran <bytes>      memory granularity (default: 64 bytes)
+-regiononly           if you just need communication between regions, this will record that and write it in CSV format, without the need for the postprocessing phase
+-csv <filename>       CSV file to write the -regiononly results to (default: pincommtrace.csv)
 
 Normally, all (32-bit) multi-threaded, dynamically linked applications should be supported. Note though that PinComm has a large memory overhead, so you cannot run with very large input sizes unless you have a machine with a *lot* of memory.
 

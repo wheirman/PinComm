@@ -1,5 +1,7 @@
 /* $Id: pincomm.cpp 6478 2010-05-25 12:11:11Z wheirman $ */
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <map>
@@ -60,6 +62,10 @@ KNOB<UINT> KnobRegionTime(KNOB_MODE_WRITEONCE, "pintool",
     "regiontime", "0", "split regions into chunks of <regiontime> instructions (replaces MAGICly marked regions)");
 KNOB<UINT> KnobMemGran(KNOB_MODE_WRITEONCE, "pintool",
     "memgran", "64", "memory granularity (default: 64)");
+KNOB<BOOL> KnobRegionOnly(KNOB_MODE_WRITEONCE, "pintool",
+    "regiononly", "0", "only measure inter-region communication, output in csv format to stdout");
+KNOB<string> KnobCsvOutputFile(KNOB_MODE_WRITEONCE, "pintool",
+    "csv", "pincommtrace.csv", "output file name for CSV output");
 
 
 /* lock to put around writing output, so lines from separate threads don't intermingle */
@@ -99,6 +105,7 @@ typedef std::map<UINT64, UINT64> commItemType;
 typedef std::map<UINT64, commItemType> commType;
 static commType comm;
 static std::map<UINT64, UINT64> combine;
+static std::map<UINT64, std::map<UINT64, UINT64> > only_region;
 
 
 static unsigned int lognextobject[MAX_THREADS] = { 0 };
@@ -415,6 +422,15 @@ VOID RecordMemRead(THREADID threadid, UINT32 funcid, ADDRINT sp, ADDRINT addr, A
       s -= (addr - (a << memgran_bits));
     if (a == (addr + size - 1) >> memgran_bits)
       s -= ((a + 1) << memgran_bits) - (addr + size);
+
+    if (KnobRegionOnly.Value()) {
+      UINT64 src = (lastwritten[a] >> 10) & 0xff,
+             dst = (region[threadid] >> 10) & 0xff;
+      if (only_region.count(src) == 0)      only_region[src] = std::map<UINT64, UINT64>();
+      if (only_region[src].count(dst) == 0) only_region[src][dst] = 0;
+      only_region[src][dst] += s;
+    }
+
     comm[region[threadid]][lastwritten[a]] += s;
     if (s && lastwritten[a]
         && threadid != (UINT32)(lastwritten[a] & 0x3ff))
@@ -694,6 +710,13 @@ VOID TheEnd()
   if (state == S_MEASURE)
     StateMeasureEnd(TRUE);
   binstore_close(trace);
+  if (KnobRegionOnly.Value()) {
+    FILE *fp = fopen(KnobCsvOutputFile.Value().c_str(), "w");
+    for(std::map<UINT64, std::map<UINT64, UINT64> >::iterator it = only_region.begin(); it != only_region.end(); ++it)
+      for(std::map<UINT64, UINT64>::iterator jt = it->second.begin(); jt != it->second.end(); ++jt)
+        fprintf(fp, "%"PRIu64",%"PRIu64",%"PRIu64"\n", it->first, jt->first, jt->second);
+    fclose(fp);
+  }
 }
 
 VOID Fini(INT32 code, VOID *v)
